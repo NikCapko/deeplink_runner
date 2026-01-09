@@ -24,15 +24,57 @@ DATA_FILE = "deeplinks.json"
 
 
 # ---------- ADB ----------
-def get_devices():
+def get_devices_info():
+    devices = []
+
     try:
         result = subprocess.run(
-            ["adb", "devices"], capture_output=True, text=True, check=True
+            ["adb", "devices", "-l"], capture_output=True, text=True, check=True
         )
+
         lines = result.stdout.strip().splitlines()[1:]
-        return [line.split()[0] for line in lines if "device" in line]
+
+        for line in lines:
+            if "device" not in line:
+                continue
+
+            parts = line.split()
+            serial = parts[0]
+
+            info = {"serial": serial, "model": "Unknown", "android": "?"}
+
+            # model из adb devices -l
+            for part in parts:
+                if part.startswith("model:"):
+                    info["model"] = part.replace("model:", "").replace("_", " ")
+
+            # версия Android
+            try:
+                version = subprocess.run(
+                    [
+                        "adb",
+                        "-s",
+                        serial,
+                        "shell",
+                        "getprop",
+                        "ro.build.version.release",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                ).stdout.strip()
+
+                if version:
+                    info["android"] = version
+            except Exception:
+                pass
+
+            devices.append(info)
+
     except Exception:
-        return []
+        pass
+
+    return devices
 
 
 def run_deeplink(device, deeplink):
@@ -63,7 +105,7 @@ class DeeplinkLauncher(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.devices = get_devices()
+        self.devices = get_devices_info()
         self.data = load_data()
 
         self.setWindowTitle("ADB Deeplink Launcher")
@@ -80,9 +122,13 @@ class DeeplinkLauncher(QWidget):
             device_layout.addWidget(QLabel("Устройство:"))
 
             self.device_combo = QComboBox()
-            self.device_combo.addItems(self.devices)
-            device_layout.addWidget(self.device_combo)
+            for device in self.devices:
+                self.device_combo.addItem(
+                    self.format_device(device),
+                    device["serial"],  # userData
+                )
 
+            device_layout.addWidget(self.device_combo)
             main_layout.addLayout(device_layout)
         else:
             self.device_combo = None
@@ -156,7 +202,7 @@ class DeeplinkLauncher(QWidget):
     # ---------- Actions ----------
     def current_device(self):
         if self.device_combo:
-            return self.device_combo.currentText()
+            return self.device_combo.currentData()
         return None
 
     def launch(self):
@@ -265,6 +311,9 @@ class DeeplinkLauncher(QWidget):
     @staticmethod
     def format_favorite(fav):
         return f"{fav['name']}  →  {fav['deeplink']}"
+
+    def format_device(self, device):
+        return f"{device['serial']} | {device['model']} | Android {device['android']}"
 
 
 # ---------- Run ----------
