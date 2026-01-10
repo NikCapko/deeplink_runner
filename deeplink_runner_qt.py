@@ -238,6 +238,17 @@ class DeeplinkLauncher(QWidget):
 
         self.devices = get_devices_info()
 
+        if not self.devices:
+            QMessageBox.information(
+                self,
+                "ADB",
+                "Устройства не найдены.\n\n"
+                "Проверьте, что:\n"
+                "• adb установлен\n"
+                "• устройство подключено\n"
+                "• включён USB debugging",
+            )
+
         if not self.device_combo:
             return
 
@@ -254,17 +265,6 @@ class DeeplinkLauncher(QWidget):
                 self.device_combo.setCurrentIndex(index)
 
         self.device_combo.blockSignals(False)
-
-        if not self.devices:
-            QMessageBox.information(
-                self,
-                "ADB",
-                "Устройства не найдены.\n\n"
-                "Проверьте, что:\n"
-                "• adb установлен\n"
-                "• устройство подключено\n"
-                "• включён USB debugging",
-            )
 
     # ---------- Actions ----------
     def current_device(self):
