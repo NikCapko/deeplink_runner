@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -151,6 +152,7 @@ class DeeplinkLauncher(QWidget):
                 self.device_combo.addItem(self.format_device(device), device["serial"])
 
             refresh_btn = QPushButton("Обновить")
+            refresh_btn.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
             refresh_btn.setToolTip("Обновить список устройств")
             refresh_btn.clicked.connect(self.refresh_devices)
 
