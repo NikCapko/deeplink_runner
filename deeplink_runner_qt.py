@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import json
 import os
 import subprocess
@@ -13,14 +14,29 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-DATA_FILE = "deeplinks.json"
+APP_NAME = "ADB Deeplink Launcher"
+
+
+def get_app_data_dir():
+    if sys.platform == "darwin":  # macOS
+        base = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    elif sys.platform.startswith("win"):  # Windows
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+    else:  # Linux и остальные
+        base = os.path.join(os.path.expanduser("~"), ".local", "share")
+
+    app_dir = os.path.join(base, APP_NAME)
+    os.makedirs(app_dir, exist_ok=True)
+    return app_dir
+
+
+DATA_FILE = os.path.join(get_app_data_dir(), "deeplinks.json")
 
 
 # ---------- ADB ----------
@@ -91,13 +107,21 @@ def load_data():
     if not os.path.exists(DATA_FILE):
         return {"history": [], "favorites": []}
 
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"history": [], "favorites": []}
 
 
 def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        QMessageBox.critical(
+            None, "Ошибка сохранения", f"Не удалось сохранить данные:\n{e}"
+        )
 
 
 # ---------- UI ----------
@@ -108,27 +132,31 @@ class DeeplinkLauncher(QWidget):
         self.devices = get_devices_info()
         self.data = load_data()
 
-        self.setWindowTitle("ADB Deeplink Launcher")
+        self.setWindowTitle(APP_NAME)
         self.setMinimumSize(900, 500)
 
         self.init_ui()
+        self.refresh_devices()
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
 
         # Device selector
-        if len(self.devices) > 1:
+        if len(self.devices) > 0:
             device_layout = QHBoxLayout()
             device_layout.addWidget(QLabel("Устройство:"))
 
             self.device_combo = QComboBox()
             for device in self.devices:
-                self.device_combo.addItem(
-                    self.format_device(device),
-                    device["serial"],  # userData
-                )
+                self.device_combo.addItem(self.format_device(device), device["serial"])
+
+            refresh_btn = QPushButton("Обновить")
+            refresh_btn.setToolTip("Обновить список устройств")
+            refresh_btn.clicked.connect(self.refresh_devices)
 
             device_layout.addWidget(self.device_combo)
+            device_layout.addWidget(refresh_btn)
+
             main_layout.addLayout(device_layout)
         else:
             self.device_combo = None
@@ -145,19 +173,11 @@ class DeeplinkLauncher(QWidget):
         launch_btn = QPushButton("Запустить")
         launch_btn.clicked.connect(self.launch)
 
-        fav_btn = QPushButton("⭐ В избранное")
+        fav_btn = QPushButton("В избранное")
         fav_btn.clicked.connect(self.add_to_favorites)
-
-        rename_btn = QPushButton("✏️ Переименовать")
-        rename_btn.clicked.connect(self.rename_favorite)
-
-        delete_btn = QPushButton("🗑 Удалить избранное")
-        delete_btn.clicked.connect(self.delete_favorite)
 
         buttons_layout.addWidget(launch_btn)
         buttons_layout.addWidget(fav_btn)
-        buttons_layout.addWidget(rename_btn)
-        buttons_layout.addWidget(delete_btn)
 
         main_layout.addLayout(buttons_layout)
 
@@ -175,7 +195,7 @@ class DeeplinkLauncher(QWidget):
         for link in self.data["history"]:
             self.history_list.addItem(link)
 
-        clear_history_btn = QPushButton("🧹 Очистить историю")
+        clear_history_btn = QPushButton("Очистить историю")
         clear_history_btn.clicked.connect(self.clear_history)
 
         history_layout.addWidget(self.history_list)
@@ -192,12 +212,57 @@ class DeeplinkLauncher(QWidget):
         for fav in self.data["favorites"]:
             self.favorites_list.addItem(self.format_favorite(fav))
 
+        rename_btn = QPushButton("Переименовать")
+        rename_btn.clicked.connect(self.rename_favorite)
+
+        delete_btn = QPushButton("Удалить")
+        delete_btn.clicked.connect(self.delete_favorite)
+
         favorites_layout.addWidget(self.favorites_list)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(rename_btn)
+        buttons_layout.addWidget(delete_btn)
+
+        favorites_layout.addLayout(buttons_layout)
 
         lists_layout.addWidget(history_box)
         lists_layout.addWidget(favorites_box)
 
         main_layout.addLayout(lists_layout)
+
+    def refresh_devices(self):
+        current_serial = self.current_device()
+
+        self.devices = get_devices_info()
+
+        if not self.device_combo:
+            return
+
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+
+        for device in self.devices:
+            self.device_combo.addItem(self.format_device(device), device["serial"])
+
+        # попытка восстановить выбранное устройство
+        if current_serial:
+            index = self.device_combo.findData(current_serial)
+            if index >= 0:
+                self.device_combo.setCurrentIndex(index)
+
+        self.device_combo.blockSignals(False)
+
+        if not self.devices:
+            QMessageBox.information(
+                self,
+                "ADB",
+                "Устройства не найдены.\n\n"
+                "Проверьте, что:\n"
+                "• adb установлен\n"
+                "• устройство подключено\n"
+                "• включён USB debugging",
+            )
 
     # ---------- Actions ----------
     def current_device(self):
