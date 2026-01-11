@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -25,6 +26,45 @@ from PyQt5.QtWidgets import (
 APP_NAME = "ADB Deeplink Launcher"
 
 
+def resolve_adb():
+    candidates = [
+        "adb",  # если вдруг повезёт
+        "/opt/homebrew/bin/adb",  # macOS Apple Silicon
+        "/usr/local/bin/adb",  # macOS Intel
+        "/usr/bin/adb",  # редко, но бывает
+    ]
+
+    # Windows
+    if sys.platform.startswith("win"):
+        candidates.extend(
+            [
+                os.path.join(
+                    os.environ.get("LOCALAPPDATA", ""),
+                    "Android",
+                    "Sdk",
+                    "platform-tools",
+                    "adb.exe",
+                ),
+                os.path.join(
+                    os.environ.get("ProgramFiles", ""),
+                    "Android",
+                    "platform-tools",
+                    "adb.exe",
+                ),
+            ]
+        )
+
+    # Linux
+    if sys.platform.startswith("linux"):
+        candidates.extend(["/usr/bin/adb", "/bin/adb"])
+
+    for path in candidates:
+        if shutil.which(path) or os.path.exists(path):
+            return path
+
+    return None
+
+
 def get_app_data_dir():
     if sys.platform == "darwin":  # macOS
         base = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
@@ -38,6 +78,7 @@ def get_app_data_dir():
     return app_dir
 
 
+ADB_PATH = resolve_adb()
 DATA_FILE = os.path.join(get_app_data_dir(), "deeplinks.json")
 
 
@@ -45,9 +86,12 @@ DATA_FILE = os.path.join(get_app_data_dir(), "deeplinks.json")
 def get_devices_info():
     devices = []
 
+    if not ADB_PATH:
+        return
+
     try:
         result = subprocess.run(
-            ["adb", "devices", "-l"], capture_output=True, text=True, check=True
+            [ADB_PATH, "devices", "-l"], capture_output=True, text=True, check=True
         )
 
         lines = result.stdout.strip().splitlines()[1:]
@@ -70,7 +114,7 @@ def get_devices_info():
             try:
                 version = subprocess.run(
                     [
-                        "adb",
+                        ADB_PATH,
                         "-s",
                         serial,
                         "shell",
@@ -96,7 +140,9 @@ def get_devices_info():
 
 
 def run_deeplink(device, deeplink):
-    cmd = ["adb"]
+    if not ADB_PATH:
+        return
+    cmd = [ADB_PATH]
     if device:
         cmd += ["-s", device]
 
