@@ -8,6 +8,7 @@ import sys
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
+    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -142,6 +143,17 @@ class DeeplinkLauncher(QWidget):
     def init_ui(self):
         main_layout = QVBoxLayout(self)
 
+        import_btn = QPushButton("📥 Импорт файла")
+        import_btn.clicked.connect(self.import_deeplinks)
+
+        export_btn = QPushButton("📤 Экспорт файла")
+        export_btn.clicked.connect(self.export_deeplinks)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(import_btn)
+        buttons_layout.addWidget(export_btn)
+        main_layout.addLayout(buttons_layout)
+
         # Device selector
         if len(self.devices) > 0:
             device_layout = QHBoxLayout()
@@ -220,11 +232,15 @@ class DeeplinkLauncher(QWidget):
         delete_btn = QPushButton("Удалить")
         delete_btn.clicked.connect(self.delete_favorite)
 
+        clear_btn = QPushButton("Удалить все")
+        clear_btn.clicked.connect(self.clear_favorite)
+
         favorites_layout.addWidget(self.favorites_list)
 
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(rename_btn)
         buttons_layout.addWidget(delete_btn)
+        buttons_layout.addWidget(clear_btn)
 
         favorites_layout.addLayout(buttons_layout)
 
@@ -339,6 +355,19 @@ class DeeplinkLauncher(QWidget):
             self.favorites_list.takeItem(row)
             save_data(self.data)
 
+    def clear_favorite(self):
+        reply = QMessageBox.question(
+            self,
+            "Удалить",
+            "Удалить все диплинки из избранного?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            self.data["favorites"].clear()
+            self.favorites_list.clear()
+            save_data(self.data)
+
     def clear_history(self):
         if not self.data["history"]:
             return
@@ -379,8 +408,76 @@ class DeeplinkLauncher(QWidget):
     def format_favorite(fav):
         return f"{fav['name']}  →  {fav['deeplink']}"
 
-    def format_device(self, device):
+    @staticmethod
+    def format_device(device):
         return f"{device['serial']} | {device['model']} | Android {device['android']}"
+
+    def export_deeplinks(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Экспорт диплинков", "deeplinks.json", "JSON files (*.json)"
+        )
+
+        if not path:
+            return
+
+        export_data = {
+            "version": 1,
+            "history": self.data.get("history", []),
+            "favorites": self.data.get("favorites", []),
+        }
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка экспорта", str(e))
+            return
+
+        QMessageBox.information(self, "Экспорт", "Диплинки успешно экспортированы")
+
+    def import_deeplinks(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Импорт диплинков", "", "JSON files (*.json)"
+        )
+
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                imported = json.load(f)
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Ошибка импорта", f"Не удалось прочитать файл:\n{e}"
+            )
+            return
+
+        if not isinstance(imported, dict) or "favorites" not in imported:
+            QMessageBox.critical(self, "Ошибка", "Некорректный формат файла")
+            return
+
+        # --- merge ---
+        added_fav = 0
+        for fav in imported.get("favorites", []):
+            if fav not in self.data["favorites"]:
+                self.data["favorites"].append(fav)
+                self.favorites_list.addItem(self.format_favorite(fav))
+                added_fav += 1
+
+        added_hist = 0
+        for link in imported.get("history", []):
+            if link not in self.data["history"]:
+                self.data["history"].append(link)
+                self.history_list.addItem(link)
+                added_hist += 1
+
+        save_data(self.data)
+
+        QMessageBox.information(
+            self,
+            "Импорт завершён",
+            f"Добавлено:\n• Избранное: {added_fav}\n• История: {added_hist}",
+        )
 
 
 # ---------- Run ----------
